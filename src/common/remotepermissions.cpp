@@ -15,7 +15,7 @@ namespace OCC {
 
 Q_LOGGING_CATEGORY(lcRemotePermissions, "nextcloud.sync.remotepermissions", QtInfoMsg)
 
-static const char letters[] = " WDNVCKRSMm";
+static const char letters[] = " GWDNVCKRSMm";
 
 
 template <typename Char>

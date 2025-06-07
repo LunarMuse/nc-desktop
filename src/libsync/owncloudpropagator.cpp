@@ -13,6 +13,7 @@
 #include "propagateremotemove.h"
 #include "propagateremotemkdir.h"
 #include "bulkpropagatorjob.h"
+#include "bulkpropagatordownloadjob.h"
 #include "updatee2eefoldermetadatajob.h"
 #include "updatemigratede2eemetadatajob.h"
 #include "propagatorjobs.h"
@@ -684,7 +685,17 @@ void OwncloudPropagator::startFilePropagation(const SyncFileItemPtr &item,
         }
         removedDirectory = item->_file + "/";
     } else {
-        directories.top().second->appendTask(item);
+        const auto isVfsCfApi = syncOptions()._vfs && syncOptions()._vfs->mode() == Vfs::WindowsCfApi;
+        const auto isDownload = item->_direction == SyncFileItem::Down &&
+            (item->_instruction == CSYNC_INSTRUCTION_NEW || item->_instruction == CSYNC_INSTRUCTION_SYNC);
+        const auto isVirtualFile = item->_type == ItemTypeVirtualFile;
+        const auto shouldAddBulkPropagateDownloadItem = isDownload && isVirtualFile && isVfsCfApi;
+
+        if (shouldAddBulkPropagateDownloadItem) {
+            addBulkPropagateDownloadItem(item, directories);
+        } else {
+            directories.top().second->appendTask(item);
+        }
     }
 
     if (item->_instruction == CSYNC_INSTRUCTION_CONFLICT) {
@@ -692,6 +703,27 @@ void OwncloudPropagator::startFilePropagation(const SyncFileItemPtr &item,
         // directory we want to skip processing items inside it.
         maybeConflictDirectory = item->_file + "/";
     }
+}
+
+void OwncloudPropagator::addBulkPropagateDownloadItem(const SyncFileItemPtr &item, QStack<QPair<QString, PropagateDirectory *>> &directories)
+{
+    auto bulkPropagatorDownloadJob = static_cast<BulkPropagatorDownloadJob*>(nullptr);
+    const auto foundBulkPrpagatorDownloadJobIt = std::find_if(std::cbegin(directories.top().second->_subJobs._jobsToDo),
+                                                              std::cend(directories.top().second->_subJobs._jobsToDo),
+                                                              [](PropagatorJob *job)
+                                                              {
+                                                                  const auto bulkDownloadJob = qobject_cast<BulkPropagatorDownloadJob *>(job);
+                                                                  return bulkDownloadJob != nullptr;
+                                                              }
+                                                              );
+
+    if (foundBulkPrpagatorDownloadJobIt == std::cend(directories.top().second->_subJobs._jobsToDo)) {
+        bulkPropagatorDownloadJob = new BulkPropagatorDownloadJob(this, directories.top().second);
+        directories.top().second->appendJob(bulkPropagatorDownloadJob);
+    } else {
+        bulkPropagatorDownloadJob = qobject_cast<BulkPropagatorDownloadJob *>(*foundBulkPrpagatorDownloadJobIt);
+    }
+    bulkPropagatorDownloadJob->addDownloadItem(item);
 }
 
 void OwncloudPropagator::processE2eeMetadataMigration(const SyncFileItemPtr &item, QStack<QPair<QString, PropagateDirectory *>> &directories)
@@ -1459,11 +1491,14 @@ void PropagateDirectory::slotSubJobsFinished(SyncFileItem::Status status)
                 !_item->_remotePerm.hasPermission(RemotePermissions::CanAddFile) &&
                 !_item->_remotePerm.hasPermission(RemotePermissions::CanAddSubDirectories)) {
                 try {
-                    if (FileSystem::fileExists(propagator()->fullLocalPath(_item->_file))) {
-                        FileSystem::setFolderPermissions(propagator()->fullLocalPath(_item->_file), FileSystem::FolderPermissions::ReadOnly);
+                    if (const auto fileName = propagator()->fullLocalPath(_item->_file); FileSystem::fileExists(fileName)) {
+                        FileSystem::setFolderPermissions(fileName, FileSystem::FolderPermissions::ReadOnly);
+                        Q_EMIT propagator()->touchedFile(fileName);
                     }
                     if (!_item->_renameTarget.isEmpty() && FileSystem::fileExists(propagator()->fullLocalPath(_item->_renameTarget))) {
-                        FileSystem::setFolderPermissions(propagator()->fullLocalPath(_item->_renameTarget), FileSystem::FolderPermissions::ReadOnly);
+                        const auto fileName = propagator()->fullLocalPath(_item->_renameTarget);
+                        FileSystem::setFolderPermissions(fileName, FileSystem::FolderPermissions::ReadOnly);
+                        Q_EMIT propagator()->touchedFile(fileName);
                     }
                 }
                 catch (const std::filesystem::filesystem_error &e)
@@ -1486,10 +1521,11 @@ void PropagateDirectory::slotSubJobsFinished(SyncFileItem::Status status)
                 }
             } else {
                 try {
-                    const auto permissionsChangeHelper = [] (const auto fileName)
+                    const auto permissionsChangeHelper = [this] (const auto fileName)
                     {
                         qCDebug(lcDirectory) << fileName << "permissions changed: old permissions" << static_cast<int>(std::filesystem::status(fileName.toStdWString()).permissions());
                         FileSystem::setFolderPermissions(fileName, FileSystem::FolderPermissions::ReadWrite);
+                        Q_EMIT propagator()->touchedFile(fileName);
                         qCDebug(lcDirectory) << fileName << "applied new permissions" << static_cast<int>(std::filesystem::status(fileName.toStdWString()).permissions());
                     };
 
@@ -1520,9 +1556,6 @@ void PropagateDirectory::slotSubJobsFinished(SyncFileItem::Status status)
                 }
             }
             if (!_item->_isAnyCaseClashChild && !_item->_isAnyInvalidCharChild) {
-                if (_item->isEncrypted()) {
-                    _item->_e2eCertificateFingerprint = propagator()->account()->encryptionCertificateFingerprint();
-                }
                 const auto result = propagator()->updateMetadata(*_item);
                 if (!result) {
                     status = _item->_status = SyncFileItem::FatalError;
