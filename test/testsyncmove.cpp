@@ -329,7 +329,7 @@ private slots:
         fakeFolder.remoteModifier().mkdir("external-storage");
         auto externalStorage = fakeFolder.remoteModifier().find("external-storage");
         externalStorage->extraDavProperties = "<nc:is-mount-root>true</nc:is-mount-root>";
-        setAllPerm(externalStorage, RemotePermissions::fromServerString("WDNVCKRM"));
+        setAllPerm(externalStorage, RemotePermissions::fromServerString("WDNVCKRMG"));
         QVERIFY(fakeFolder.syncOnce());
 
         OperationCounter operationCounter;
@@ -815,7 +815,7 @@ private slots:
     {
         QFETCH(bool, local);
         FakeFolder fakeFolder { FileInfo::A12_B12_C12_S12() };
-        auto &modifier = local ? fakeFolder.localModifier() : fakeFolder.remoteModifier();
+        auto &modifier = local ? static_cast<FileModifier&>(fakeFolder.localModifier()) : fakeFolder.remoteModifier();
 
         modifier.mkdir("FolA");
         modifier.mkdir("FolA/FolB");
@@ -1162,7 +1162,7 @@ private slots:
         fakeFolder.remoteModifier().mkdir("FolA");
         auto groupFolderRoot = fakeFolder.remoteModifier().find("FolA");
         groupFolderRoot->extraDavProperties = "<nc:is-mount-root>true</nc:is-mount-root>";
-        setAllPerm(groupFolderRoot, RemotePermissions::fromServerString("WDNVCKRM"));
+        setAllPerm(groupFolderRoot, RemotePermissions::fromServerString("WDNVCKRMG"));
         fakeFolder.remoteModifier().mkdir("FolA/FolB");
         fakeFolder.remoteModifier().mkdir("FolA/FolB/FolC");
         fakeFolder.remoteModifier().mkdir("FolA/FolB/FolC/FolD");
@@ -1199,7 +1199,7 @@ private slots:
         fakeFolder.remoteModifier().mkdir("FolA");
         auto groupFolderRoot = fakeFolder.remoteModifier().find("FolA");
         groupFolderRoot->extraDavProperties = "<nc:is-mount-root>true</nc:is-mount-root>";
-        setAllPerm(groupFolderRoot, RemotePermissions::fromServerString("WDNVCKRM"));
+        setAllPerm(groupFolderRoot, RemotePermissions::fromServerString("WDNVCKRMG"));
         fakeFolder.remoteModifier().mkdir("FolA/FolB");
         fakeFolder.remoteModifier().mkdir("FolA/FolB/FolC");
         fakeFolder.remoteModifier().mkdir("FolA/FolB/FolC/FolD");
